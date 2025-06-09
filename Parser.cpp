@@ -3,6 +3,7 @@
 #include "Client.hpp"
 #include "Channel.hpp"
 #include "Utils.hpp"
+#include <unistd.h> // For usleep
 
 /**
  * @brief Constructor for Parser class
@@ -53,11 +54,11 @@ IRCCommand Parser::parseCommand(const std::string& message) {
     // Extract command
     size_t cmdEnd = line.find(' ', pos);
     if (cmdEnd == std::string::npos) {
-        cmd.command = Utils::toUpper(line.substr(pos));
+        cmd.command = line.substr(pos);  // Keep original case
         return cmd;  // No parameters
     }
     
-    cmd.command = Utils::toUpper(line.substr(pos, cmdEnd - pos));
+    cmd.command = line.substr(pos, cmdEnd - pos);  // Keep original case
     pos = cmdEnd + 1;
     
     // Extract parameters
@@ -148,8 +149,11 @@ void Parser::handlePass(Client* client, const IRCCommand& cmd) {
     
     if (cmd.params[0] == _server->getPassword()) {
         client->setAuthenticated(true);
+        // No response is sent for successful PASS according to RFC 1459
+        // The client will know it succeeded when they don't get ERR_PASSWDMISMATCH
     } else {
         sendError(client, IRC::ERR_PASSWDMISMATCH, ":Password incorrect");
+        // Keep client connected, let them try again
     }
 }
 
@@ -161,6 +165,12 @@ void Parser::handlePass(Client* client, const IRCCommand& cmd) {
 void Parser::handleNick(Client* client, const IRCCommand& cmd) {
     if (cmd.params.empty()) {
         sendError(client, IRC::ERR_NONICKNAMEGIVEN, ":No nickname given");
+        return;
+    }
+    
+    // Require authentication before setting nickname
+    if (!client->isAuthenticated()) {
+        sendError(client, IRC::ERR_NOTREGISTERED, ":You have not registered");
         return;
     }
     
@@ -202,6 +212,12 @@ void Parser::handleNick(Client* client, const IRCCommand& cmd) {
 void Parser::handleUser(Client* client, const IRCCommand& cmd) {
     if (client->isRegistered()) {
         sendError(client, IRC::ERR_ALREADYREGISTERED, ":You may not reregister");
+        return;
+    }
+    
+    // Require authentication before setting user info
+    if (!client->isAuthenticated()) {
+        sendError(client, IRC::ERR_NOTREGISTERED, ":You have not registered");
         return;
     }
     
@@ -274,17 +290,17 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
     
     // Send topic if set
     if (!channel->getTopic().empty()) {
-        std::string topicMsg = Utils::formatReply(IRC::RPL_TOPIC, client->getNickname(), 
+        std::string topicMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_TOPIC, client->getNickname(), 
                                                 channelName + " :" + channel->getTopic());
         Utils::sendToClient(client, topicMsg);
     }
     
     // Send names list
-    std::string namesMsg = Utils::formatReply(IRC::RPL_NAMREPLY, client->getNickname(),
+    std::string namesMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_NAMREPLY, client->getNickname(),
                                             "= " + channelName + " :" + channel->getUserList());
     Utils::sendToClient(client, namesMsg);
     
-    std::string endNamesMsg = Utils::formatReply(IRC::RPL_ENDOFNAMES, client->getNickname(),
+    std::string endNamesMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_ENDOFNAMES, client->getNickname(),
                                                channelName + " :End of /NAMES list");
     Utils::sendToClient(client, endNamesMsg);
 }
@@ -514,7 +530,7 @@ void Parser::handleTopic(Client* client, const IRCCommand& cmd) {
             // No topic set - we could send a "no topic" message, but it's optional
             return;
         } else {
-            std::string topicMsg = Utils::formatReply(IRC::RPL_TOPIC, client->getNickname(),
+            std::string topicMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_TOPIC, client->getNickname(),
                                                     channelName + " :" + channel->getTopic());
             Utils::sendToClient(client, topicMsg);
         }
@@ -566,7 +582,7 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
         
         if (cmd.params.size() == 1) {
             // View modes
-            std::string modeMsg = Utils::formatReply(IRC::RPL_CHANNELMODEIS, client->getNickname(),
+            std::string modeMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_CHANNELMODEIS, client->getNickname(),
                                                    target + " " + channel->getModeString());
             Utils::sendToClient(client, modeMsg);
             return;
@@ -654,21 +670,52 @@ void Parser::sendWelcome(Client* client) {
     std::string serverName = _server->getServerName();
     
     // Send welcome sequence
-    std::string welcome = Utils::formatReply(IRC::RPL_WELCOME, nick, 
+    std::string welcome = Utils::formatReply(serverName, IRC::RPL_WELCOME, nick, 
                                            ":Welcome to the Internet Relay Network " + client->getPrefix());
     Utils::sendToClient(client, welcome);
     
-    std::string yourhost = Utils::formatReply(IRC::RPL_YOURHOST, nick,
+    std::string yourhost = Utils::formatReply(serverName, IRC::RPL_YOURHOST, nick,
                                             ":Your host is " + serverName + ", running version 1.0");
     Utils::sendToClient(client, yourhost);
     
-    std::string created = Utils::formatReply(IRC::RPL_CREATED, nick,
+    std::string created = Utils::formatReply(serverName, IRC::RPL_CREATED, nick,
                                            ":This server was created " + _server->getCreationTime());
     Utils::sendToClient(client, created);
     
-    std::string myinfo = Utils::formatReply(IRC::RPL_MYINFO, nick,
+    std::string myinfo = Utils::formatReply(serverName, IRC::RPL_MYINFO, nick,
                                           serverName + " 1.0 o itklno");
     Utils::sendToClient(client, myinfo);
+    
+    // Send command help manual
+    std::string manual1 = ":" + serverName + " NOTICE " + nick + " :Available Commands:";
+    Utils::sendToClient(client, manual1);
+    
+    std::string manual2 = ":" + serverName + " NOTICE " + nick + " :JOIN #channel - Join a channel";
+    Utils::sendToClient(client, manual2);
+    
+    std::string manual3 = ":" + serverName + " NOTICE " + nick + " :PART #channel - Leave a channel";
+    Utils::sendToClient(client, manual3);
+    
+    std::string manual4 = ":" + serverName + " NOTICE " + nick + " :PRIVMSG #channel :message - Send message to channel";
+    Utils::sendToClient(client, manual4);
+    
+    std::string manual5 = ":" + serverName + " NOTICE " + nick + " :PRIVMSG nickname :message - Send private message";
+    Utils::sendToClient(client, manual5);
+    
+    std::string manual6 = ":" + serverName + " NOTICE " + nick + " :TOPIC #channel :topic - Set channel topic (ops only)";
+    Utils::sendToClient(client, manual6);
+    
+    std::string manual7 = ":" + serverName + " NOTICE " + nick + " :KICK #channel nickname - Kick user (ops only)";
+    Utils::sendToClient(client, manual7);
+    
+    std::string manual8 = ":" + serverName + " NOTICE " + nick + " :INVITE nickname #channel - Invite user (ops only)";
+    Utils::sendToClient(client, manual8);
+    
+    std::string manual9 = ":" + serverName + " NOTICE " + nick + " :MODE #channel +/-itklno - Set channel modes (ops only)";
+    Utils::sendToClient(client, manual9);
+    
+    std::string manual10 = ":" + serverName + " NOTICE " + nick + " :QUIT - Disconnect from server";
+    Utils::sendToClient(client, manual10);
     
     client->setWelcomeSent(true);
 }
@@ -681,6 +728,6 @@ void Parser::sendWelcome(Client* client) {
  */
 void Parser::sendError(Client* client, int errorCode, const std::string& message) {
     std::string nick = client->getNickname().empty() ? "*" : client->getNickname();
-    std::string errorMsg = Utils::formatReply(errorCode, nick, message);
+    std::string errorMsg = Utils::formatReply(_server->getServerName(), errorCode, nick, message);
     Utils::sendToClient(client, errorMsg);
 }

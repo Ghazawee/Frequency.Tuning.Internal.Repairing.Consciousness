@@ -115,13 +115,13 @@ bool Utils::sendToClient(Client* client, const std::string& message) {
  * @return Timestamp string
  */
 std::string Utils::getTimestamp() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);  // Get current time
+    time_t now = time(0);
+    struct tm* timeinfo = localtime(&now);
     
-    std::stringstream ss;
-    ss << tv.tv_sec;
+    char buffer[80];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
     
-    return ss.str();
+    return std::string(buffer);
 }
 
 /**
@@ -216,6 +216,21 @@ std::string Utils::formatReply(int code, const std::string& target, const std::s
     ss << std::setfill('0') << std::setw(3) << code;  // Format as 3-digit number with leading zeros
     
     return ss.str() + " " + target + " " + message;
+}
+
+/**
+ * @brief Format a numeric reply with server prefix (RFC compliant)
+ * @param serverName The server name to use as prefix
+ * @param code The numeric code (e.g., 001 for welcome)
+ * @param target The target (usually the client's nickname)
+ * @param message The reply message
+ * @return Formatted numeric reply with server prefix
+ */
+std::string Utils::formatReply(const std::string& serverName, int code, const std::string& target, const std::string& message) {
+    std::stringstream ss;
+    ss << ":" << serverName << " " << std::setfill('0') << std::setw(3) << code << " " << target << " " << message;
+    
+    return ss.str();
 }
 
 /**

@@ -30,42 +30,53 @@ public:
     static std::string formatMessage(const std::string& prefix, const std::string& command, 
                                    const std::string& params);
     static std::string formatReply(int code, const std::string& target, const std::string& message);
+    static std::string formatReply(const std::string& serverName, int code, const std::string& target, const std::string& message);
     
     // Number conversion with error checking
     static bool stringToInt(const std::string& str, int& result);
     static std::string intToString(int value);
 };
 
-// IRC numeric reply codes (defined in RFC 1459)
-// Using #define for maximum 42 project compatibility
-#define RPL_WELCOME 001
-#define RPL_YOURHOST 002
-#define RPL_CREATED 003
-#define RPL_MYINFO 004
-
-#define RPL_TOPIC 332
-#define RPL_NAMREPLY 353
-#define RPL_ENDOFNAMES 366
-#define RPL_CHANNELMODEIS 324
-
-#define ERR_NOSUCHNICK 401
-#define ERR_NOSUCHCHANNEL 403
-#define ERR_CANNOTSENDTOCHAN 404
-#define ERR_NORECIPIENT 411
-#define ERR_NOTEXTTOSEND 412
-#define ERR_UNKNOWNCOMMAND 421
-#define ERR_NONICKNAMEGIVEN 431
-#define ERR_ERRONEUSNICKNAME 432
-#define ERR_NICKNAMEINUSE 433
-#define ERR_USERNOTINCHANNEL 441
-#define ERR_NOTONCHANNEL 442
-#define ERR_USERONCHANNEL 443
-#define ERR_NEEDMOREPARAMS 461
-#define ERR_ALREADYREGISTERED 462
-#define ERR_PASSWDMISMATCH 464
-#define ERR_CHANNELISFULL 471
-#define ERR_INVITEONLYCHAN 473
-#define ERR_BADCHANNELKEY 475
-#define ERR_CHANOPRIVSNEEDED 482
+/**
+ * @brief IRC namespace containing all IRC protocol constants
+ * 
+ * This namespace organizes all IRC numeric reply codes as defined in RFC 1459.
+ * Using a namespace provides better code organization and prevents global namespace pollution.
+ */
+namespace IRC {
+    // Success reply codes (001-099)
+    const int RPL_WELCOME = 001;
+    const int RPL_YOURHOST = 002;
+    const int RPL_CREATED = 003;
+    const int RPL_MYINFO = 004;
+    
+    // Command response codes (300-399)
+    const int RPL_TOPIC = 332;
+    const int RPL_NAMREPLY = 353;
+    const int RPL_ENDOFNAMES = 366;
+    const int RPL_CHANNELMODEIS = 324;
+    
+    // Error codes (400-599)
+    const int ERR_NOSUCHNICK = 401;
+    const int ERR_NOSUCHCHANNEL = 403;
+    const int ERR_CANNOTSENDTOCHAN = 404;
+    const int ERR_NORECIPIENT = 411;
+    const int ERR_NOTEXTTOSEND = 412;
+    const int ERR_UNKNOWNCOMMAND = 421;
+    const int ERR_NONICKNAMEGIVEN = 431;
+    const int ERR_ERRONEUSNICKNAME = 432;
+    const int ERR_NICKNAMEINUSE = 433;
+    const int ERR_USERNOTINCHANNEL = 441;
+    const int ERR_NOTONCHANNEL = 442;
+    const int ERR_USERONCHANNEL = 443;
+    const int ERR_NOTREGISTERED = 451;
+    const int ERR_NEEDMOREPARAMS = 461;
+    const int ERR_ALREADYREGISTERED = 462;
+    const int ERR_PASSWDMISMATCH = 464;
+    const int ERR_CHANNELISFULL = 471;
+    const int ERR_INVITEONLYCHAN = 473;
+    const int ERR_BADCHANNELKEY = 475;
+    const int ERR_CHANOPRIVSNEEDED = 482;
+}
 
 #endif

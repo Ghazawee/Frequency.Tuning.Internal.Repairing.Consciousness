@@ -37,7 +37,7 @@ void Server::requestShutdown() {
 Server::Server(int port, const std::string& password) 
     : _port(port), _password(password), _serverSocket(-1), _shutdown(false), _parser(NULL) {
     
-    _serverName = "ft_irc.42.fr";
+    _serverName = "ft_irc.42.fr";// maybe set to terminal name
     _creationTime = Utils::getTimestamp();
     
     // Set current server instance for signal handler
@@ -46,6 +46,7 @@ Server::Server(int port, const std::string& password)
     // Set up signal handler for graceful shutdown
     signal(SIGINT, Server::signalHandler);
     signal(SIGPIPE, SIG_IGN);  // Ignore SIGPIPE (broken pipe)
+    //maybe SIGQUIT as well?
     
     _parser = new Parser(this);
 }
@@ -345,20 +346,51 @@ void Server::processClientData(Client* client) {
     buffer[bytesRead] = '\0';
     client->appendToBuffer(buffer);
     
-    // Process complete commands (lines ending with \r\n)
+    // Process complete commands (lines ending with \r\n or just \n)
     std::string& clientBuffer = const_cast<std::string&>(client->getBuffer());
     size_t pos = 0;
     
+    // First try to find \r\n (proper IRC)
     while ((pos = clientBuffer.find("\r\n")) != std::string::npos) {
         std::string command = clientBuffer.substr(0, pos);
         clientBuffer.erase(0, pos + 2);  // Remove processed command + \r\n
         
         if (!command.empty()) {
+            std::cout << command << std::endl;
             IRCCommand cmd = _parser->parseCommand(command);
             _parser->executeCommand(client, cmd);
             
             // Check if client was deleted (e.g., by QUIT command)
             // If client is not in our list anymore, it was deleted
+            bool clientExists = false;
+            for (size_t i = 0; i < _clients.size(); ++i) {
+                if (_clients[i] == client) {
+                    clientExists = true;
+                    break;
+                }
+            }
+            if (!clientExists) {
+                return; // Client was deleted, stop processing
+            }
+        }
+    }
+    
+    // Also handle lines ending with just \n (for nc compatibility)
+    while ((pos = clientBuffer.find("\n")) != std::string::npos) {
+        std::string command = clientBuffer.substr(0, pos);
+        clientBuffer.erase(0, pos + 1);  // Remove processed command + \n
+        
+        // Remove trailing \r if present
+        if (!command.empty() && command[command.length()-1] == '\r') {
+            command.erase(command.length()-1);
+        }
+        
+        if (!command.empty()) {
+            std::cout << command << std::endl;
+            IRCCommand cmd = _parser->parseCommand(command);
+            _parser->executeCommand(client, cmd);
+            
+            // Check if client was deleted (e.g., by QUIT command)
             bool clientExists = false;
             for (size_t i = 0; i < _clients.size(); ++i) {
                 if (_clients[i] == client) {
@@ -442,8 +474,9 @@ bool Server::setupSocket() {
     // Set socket options
     int opt = 1;
     // SO_REUSEADDR allows reusing the address immediately after the server stops
+    // This prevents "Address already in use" errors when restarting quickly
     if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        std::cerr << "Error setting socket options: " << strerror(errno) << std::endl;
+        std::cerr << "Error setting SO_REUSEADDR: " << strerror(errno) << std::endl;
         close(_serverSocket);
         return false;
     }
