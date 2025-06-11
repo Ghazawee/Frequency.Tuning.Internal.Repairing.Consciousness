@@ -17,7 +17,10 @@ echo ""
 # Function to start server
 start_server() {
     echo "Starting IRC server..."
-    ./ircserv $PORT $PASSWORD &
+    # ./ircserv $PORT $PASSWORD &
+    # SERVER_PID=$!
+    # sleep 2
+    ( valgrind --leak-check=full --leak-resolution=high -s --show-leak-kinds=all --leak-check-heuristics=all --num-callers=500 --sigill-diagnostics=yes --track-origins=yes --undef-value-errors=yes --track-fds=yes ./ircserv $PORT $PASSWORD ) 2>>valgrind_stderr.log &
     SERVER_PID=$!
     sleep 2
     

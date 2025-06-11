@@ -94,8 +94,9 @@ bool Utils::sendToClient(Client* client, const std::string& message) {
     std::string fullMessage = message + "\r\n";  // IRC messages end with \r\n
     
     // send(socket, data, length, flags)
-    // MSG_NOSIGNAL prevents SIGPIPE signal if the client disconnected
-    ssize_t bytesSent = send(client->getFd(), fullMessage.c_str(), fullMessage.length(), MSG_NOSIGNAL);
+    // On macOS, MSG_NOSIGNAL is not available. Using 0 for flags.
+    // For robust SIGPIPE handling on macOS, SO_NOSIGPIPE socket option should be set elsewhere.
+    ssize_t bytesSent = send(client->getFd(), fullMessage.c_str(), fullMessage.length(), 0);
     
     if (bytesSent < 0) {
         std::cerr << "Error sending to client: " << strerror(errno) << std::endl;
