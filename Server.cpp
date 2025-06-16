@@ -45,6 +45,7 @@ Server::Server(int port, const std::string& password)
     
     // Set up signal handler for graceful shutdown
     signal(SIGINT, Server::signalHandler);
+    signal(SIGTERM, Server::signalHandler);  // Also handle SIGTERM for proper cleanup//maybe not needed
     signal(SIGPIPE, SIG_IGN);  // Ignore SIGPIPE (broken pipe)
     //maybe SIGQUIT as well?
     
@@ -408,6 +409,7 @@ void Server::processClientData(Client* client) {
     if (clientBuffer.length() > 512) {
         clientBuffer.clear();
         handleClientDisconnect(client);
+        return; // Important: return immediately after disconnecting // new!!!
     }
 }
 
@@ -527,7 +529,7 @@ std::string Server::getClientHostname(int clientFd) {
     if (getpeername(clientFd, (struct sockaddr*)&clientAddr, &addrLen) < 0) {
         return "unknown";
     }
-    
+
     // inet_ntoa() converts IP address to string
     return inet_ntoa(clientAddr.sin_addr);
 }

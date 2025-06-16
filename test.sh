@@ -36,7 +36,7 @@ start_server() {
 stop_server() {
     if [ ! -z "$SERVER_PID" ]; then
         echo "Stopping server (PID: $SERVER_PID)..."
-        kill $SERVER_PID 2>/dev/null
+        kill -INT $SERVER_PID 2>/dev/null
         wait $SERVER_PID 2>/dev/null
         echo "Server stopped"
     fi

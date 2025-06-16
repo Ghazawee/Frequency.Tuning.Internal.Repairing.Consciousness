@@ -47,7 +47,7 @@ start_server() {
 stop_server() {
     if [ -n "$SERVER_PID" ] && kill -0 $SERVER_PID 2>/dev/null; then
         echo -e "${YELLOW}🛑 Stopping server...${NC}"
-        kill $SERVER_PID
+        kill -INT $SERVER_PID
         wait $SERVER_PID 2>/dev/null || true
         echo -e "${GREEN}✅ Server stopped${NC}"
     fi
@@ -778,7 +778,7 @@ test_connection_limit() {
     local connection_logs=()
     
     # Launch 105 clients simultaneously to test the 100-client limit
-    for i in {1..10005}; do
+    for i in {1..105}; do
         local log_file="/tmp/limit_client_$i.log"
         connection_logs+=("$log_file")
         
@@ -858,19 +858,19 @@ main() {
     echo -e "${BLUE}======================================${NC}\n"
     
     # Enhanced stress and edge case tests
-    # test_buffer_overflow_advanced || failed_tests=$((failed_tests + 1))
-    # test_malformed_messages_advanced || failed_tests=$((failed_tests + 1))
-    # test_partial_messages_advanced || failed_tests=$((failed_tests + 1))
-    # test_concurrent_stress || failed_tests=$((failed_tests + 1))
-    # test_error_conditions_comprehensive || failed_tests=$((failed_tests + 1))
-    # test_operator_edge_cases || failed_tests=$((failed_tests + 1))
-    # test_channel_mode_interactions || failed_tests=$((failed_tests + 1))
-    # test_connection_edge_cases || failed_tests=$((failed_tests + 1))
+    test_buffer_overflow_advanced || failed_tests=$((failed_tests + 1))
+    test_malformed_messages_advanced || failed_tests=$((failed_tests + 1))
+    test_partial_messages_advanced || failed_tests=$((failed_tests + 1))
+    test_concurrent_stress || failed_tests=$((failed_tests + 1))
+    test_error_conditions_comprehensive || failed_tests=$((failed_tests + 1))
+    test_operator_edge_cases || failed_tests=$((failed_tests + 1))
+    test_channel_mode_interactions || failed_tests=$((failed_tests + 1))
+    test_connection_edge_cases || failed_tests=$((failed_tests + 1))
     test_advanced_query_commands || failed_tests=$((failed_tests + 1))
-    # test_away_functionality || failed_tests=$((failed_tests + 1))
-    # test_rapid_connect_disconnect || failed_tests=$((failed_tests + 1))
-    # test_resource_exhaustion || failed_tests=$((failed_tests + 1))
-    # test_connection_limit || failed_tests=$((failed_tests + 1))
+    test_away_functionality || failed_tests=$((failed_tests + 1))
+    test_rapid_connect_disconnect || failed_tests=$((failed_tests + 1))
+    test_resource_exhaustion || failed_tests=$((failed_tests + 1))
+    test_connection_limit || failed_tests=$((failed_tests + 1))
     
     # Final results
     echo -e "\n${BLUE}========== ENHANCED TEST RESULTS ==========${NC}"
