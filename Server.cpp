@@ -193,8 +193,7 @@ void Server::acceptNewClient() {
     }
     
     // Make client socket non-blocking
-    int flags = fcntl(clientFd, F_GETFL, 0);
-    if (flags < 0 || fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    if (fcntl(clientFd, F_SETFL, O_NONBLOCK) < 0) {
         std::cerr << "Error setting client socket to non-blocking: " << strerror(errno) << std::endl;
         close(clientFd);
         return;
@@ -484,8 +483,7 @@ bool Server::setupSocket() {
     }
     
     // Make socket non-blocking
-    int flags = fcntl(_serverSocket, F_GETFL, 0);
-    if (flags < 0 || fcntl(_serverSocket, F_SETFL, flags | O_NONBLOCK) < 0) {
+    if (fcntl(_serverSocket, F_SETFL, O_NONBLOCK) < 0) {
         std::cerr << "Error setting socket to non-blocking: " << strerror(errno) << std::endl;
         close(_serverSocket);
         return false;
