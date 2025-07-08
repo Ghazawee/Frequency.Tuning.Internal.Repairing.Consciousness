@@ -323,15 +323,37 @@ std::string Channel::getUserList() const {
  * @brief Send a message to all clients in the channel
  * @param message The message to send
  * @param exclude Client to exclude from the broadcast (usually the sender)
- * 
- * This function will be implemented after we create the Utils class
- * for sending messages to clients.
  */
 void Channel::broadcast(const std::string& message, Client* exclude) {
+    // Use the safe version and ignore disconnected clients list
+    broadcastSafe(message, exclude);
+}
+
+/**
+ * @brief Send a message to all clients in the channel (safe version)
+ * @param message The message to send
+ * @param exclude Client to exclude from the broadcast (usually the sender)
+ * @return Vector of clients that should be disconnected due to send errors
+ */
+std::vector<Client*> Channel::broadcastSafe(const std::string& message, Client* exclude) {
+    std::vector<Client*> clientsToDisconnect;
+    
     for (size_t i = 0; i < _clients.size(); ++i) {
         if (_clients[i] != exclude) {
-            // We'll implement sendToClient in Utils.cpp
-            Utils::sendToClient(_clients[i], message);
+            bool shouldDisconnect = false;
+            bool result = Utils::sendToClientSafe(_clients[i], message, shouldDisconnect);
+            
+            if (shouldDisconnect) {
+                clientsToDisconnect.push_back(_clients[i]);
+            }
+            (void)result;  // Suppress unused variable warning
         }
     }
+    
+    // Remove disconnected clients from this channel
+    for (size_t i = 0; i < clientsToDisconnect.size(); ++i) {
+        removeClient(clientsToDisconnect[i]);
+    }
+    
+    return clientsToDisconnect;
 }

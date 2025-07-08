@@ -93,22 +93,123 @@ bool Utils::sendToClient(Client* client, const std::string& message) {
     
     std::string fullMessage = message + "\r\n";  // IRC messages end with \r\n
     
+    // If client has buffered output, append this message to the buffer
+    if (client->hasOutputBuffer()) {
+        client->getOutputBuffer() += fullMessage;
+        return true;  // Message added to buffer
+    }
+    
     // send(socket, data, length, flags)
     // On macOS, MSG_NOSIGNAL is not available. Using 0 for flags.
     // For robust SIGPIPE handling on macOS, SO_NOSIGPIPE socket option should be set elsewhere.
     ssize_t bytesSent = send(client->getFd(), fullMessage.c_str(), fullMessage.length(), 0);
     
     if (bytesSent < 0) {
+        // Check if error is EAGAIN/EWOULDBLOCK (socket would block)
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Buffer the entire message for later
+            client->setOutputBuffer(fullMessage);
+            return true;  // Message successfully buffered
+        }
+        // Real error occurred - client should be disconnected
         std::cerr << "Error sending to client: " << strerror(errno) << std::endl;
-        return false;
+        return false;  // Serious error - client needs disconnection
     }
     
     if (static_cast<size_t>(bytesSent) != fullMessage.length()) {
-        std::cerr << "Warning: Partial send to client" << std::endl;
-        return false;
+        // Partial send - buffer the remaining data
+        std::string remaining = fullMessage.substr(bytesSent);
+        client->setOutputBuffer(remaining);
+        return true;  // Message successfully buffered (partial send handled)
     }
     
     return true;
+}
+
+/**
+ * @brief Send a message to a client with disconnect detection
+ * @param client Pointer to the client
+ * @param message The message to send
+ * @param shouldDisconnect Set to true if client should be disconnected due to error
+ * @return true if message was sent or buffered, false if error occurred
+ * 
+ * This version allows the caller to know when a serious error occurred
+ * and the client should be disconnected.
+ */
+bool Utils::sendToClientSafe(Client* client, const std::string& message, bool& shouldDisconnect) {
+    shouldDisconnect = false;
+    
+    if (!client) return false;
+    
+    std::string fullMessage = message + "\r\n";
+    
+    // If client has buffered output, append this message to the buffer
+    if (client->hasOutputBuffer()) {
+        client->getOutputBuffer() += fullMessage;
+        return true;  // Message added to buffer
+    }
+    
+    ssize_t bytesSent = send(client->getFd(), fullMessage.c_str(), fullMessage.length(), 0);
+    
+    if (bytesSent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Buffer the entire message for later
+            client->setOutputBuffer(fullMessage);
+            return true;  // Message successfully buffered
+        }
+        // Real error occurred - client should be disconnected
+        std::cerr << "Error sending to client: " << strerror(errno) << std::endl;
+        shouldDisconnect = true;
+        return false;  // Serious error
+    }
+    
+    if (static_cast<size_t>(bytesSent) != fullMessage.length()) {
+        // Partial send - buffer the remaining data
+        std::string remaining = fullMessage.substr(bytesSent);
+        client->setOutputBuffer(remaining);
+        return true;  // Message successfully buffered (partial send handled)
+    }
+    
+    return true;
+}
+
+/**
+ * @brief Flush the output buffer for a client
+ * @param client Pointer to the client
+ * @return true if buffer was completely flushed, false if still has data
+ * 
+ * This function attempts to send any buffered output data to the client.
+ * It should be called when POLLOUT event is triggered for the client.
+ */
+bool Utils::flushOutputBuffer(Client* client) {
+    if (!client || !client->hasOutputBuffer()) {
+        return true;  // Nothing to flush
+    }
+    
+    std::string& buffer = client->getOutputBuffer();
+    
+    ssize_t bytesSent = send(client->getFd(), buffer.c_str(), buffer.length(), 0);
+    
+    if (bytesSent < 0) {
+        // Check if error is EAGAIN/EWOULDBLOCK (socket would block)
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return false;  // Try again later
+        }
+        // Real error occurred - clear buffer and indicate error
+        std::cerr << "Error flushing buffer to client: " << strerror(errno) << std::endl;
+        client->clearOutputBuffer();  // Clear on serious error
+        return false;  // Caller should disconnect client
+    }
+    
+    if (static_cast<size_t>(bytesSent) == buffer.length()) {
+        // All data sent successfully
+        client->clearOutputBuffer();
+        return true;
+    } else {
+        // Partial send - remove sent data from buffer
+        buffer.erase(0, bytesSent);
+        return false;  // Still has data to send
+    }
 }
 
 /**

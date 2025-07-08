@@ -20,6 +20,8 @@ public:
     
     // Network utilities
     static bool sendToClient(Client* client, const std::string& message);
+    static bool sendToClientSafe(Client* client, const std::string& message, bool& shouldDisconnect);
+    static bool flushOutputBuffer(Client* client);
     static std::string getTimestamp();
     
     // Validation functions

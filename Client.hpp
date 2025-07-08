@@ -17,6 +17,7 @@ private:
     std::string _realname;      // Client's real name
     std::string _hostname;      // Client's hostname/IP address
     std::string _buffer;        // Buffer to store incoming data
+    std::string _outputBuffer;  // Buffer to store outgoing data that couldn't be sent immediately
     bool _authenticated;        // Whether client has provided correct password
     bool _registered;           // Whether client has completed registration (NICK + USER)
     bool _welcomeSent;          // Whether we've sent the welcome message
@@ -50,6 +51,12 @@ public:
     // Buffer operations
     void appendToBuffer(const std::string& data);
     void clearBuffer();
+    
+    // Output buffer operations
+    bool hasOutputBuffer() const;
+    void setOutputBuffer(const std::string& data);
+    std::string& getOutputBuffer();
+    void clearOutputBuffer();
     
     // Helper functions
     std::string getPrefix() const;  // Returns the IRC prefix (nickname!username@hostname)

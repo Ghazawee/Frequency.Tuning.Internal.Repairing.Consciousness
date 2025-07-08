@@ -64,6 +64,8 @@ public:
     // Network operations
     void processClientData(Client* client); // Read and process client data
     void handleClientDisconnect(Client* client);
+    void flushClientOutputBuffer(Client* client); // Flush buffered output to client
+    bool sendToClientSafe(Client* client, const std::string& message); // Send with disconnect handling
     
     // Getters
     const std::string& getPassword() const;

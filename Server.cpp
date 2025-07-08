@@ -3,6 +3,7 @@
 #include "Channel.hpp"
 #include "Parser.hpp"
 #include "Utils.hpp"
+#include <stdexcept>
 
 // Static member definition
 Server* Server::_currentServer = NULL;
@@ -50,6 +51,9 @@ Server::Server(int port, const std::string& password)
     //maybe SIGQUIT as well?
     
     _parser = new Parser(this);
+    if (!_parser) {
+        throw std::runtime_error("Failed to allocate memory for Parser");
+    }
 }
 
 /**
@@ -102,6 +106,12 @@ void Server::run() {
             struct pollfd clientPoll;
             clientPoll.fd = _clients[i]->getFd();
             clientPoll.events = POLLIN;  // We want to know when clients send data
+            
+            // If client has buffered output, also listen for POLLOUT
+            if (_clients[i]->hasOutputBuffer()) {
+                clientPoll.events |= POLLOUT;
+            }
+            
             clientPoll.revents = 0;
             _pollFds.push_back(clientPoll);
         }
@@ -129,19 +139,22 @@ void Server::run() {
         
         // Check for data from existing clients
         for (size_t i = 1; i < _pollFds.size(); ++i) {
+            Client* client = getClientByFd(_pollFds[i].fd);
+            if (!client) continue;
+            
+            // Handle incoming data
             if (_pollFds[i].revents & POLLIN) {
-                Client* client = getClientByFd(_pollFds[i].fd);
-                if (client) {
-                    processClientData(client);
-                }
+                processClientData(client);
+            }
+            
+            // Handle outgoing data (POLLOUT)
+            if (_pollFds[i].revents & POLLOUT) {
+                flushClientOutputBuffer(client);
             }
             
             // Check for client disconnection
             if (_pollFds[i].revents & (POLLHUP | POLLERR)) {
-                Client* client = getClientByFd(_pollFds[i].fd);
-                if (client) {
-                    handleClientDisconnect(client);
-                }
+                handleClientDisconnect(client);
             }
         }
     }
@@ -226,7 +239,14 @@ void Server::removeClient(Client* client) {
             // Send QUIT message to channel members
             if (client->isRegistered()) {
                 std::string quitMsg = Utils::formatMessage(client->getPrefix(), "QUIT", ":Client disconnected");
-                channel->broadcast(quitMsg, client);
+                std::vector<Client*> disconnectedClients = channel->broadcastSafe(quitMsg, client);
+                
+                // Handle disconnected clients (but don't disconnect the client we're already removing)
+                for (size_t j = 0; j < disconnectedClients.size(); ++j) {
+                    if (disconnectedClients[j] != client) {
+                        handleClientDisconnect(disconnectedClients[j]);
+                    }
+                }
             }
             
             channel->removeClient(client);
@@ -450,10 +470,25 @@ const std::string& Server::getCreationTime() const {
  * @param exclude Client to exclude (optional)
  */
 void Server::broadcastToAll(const std::string& message, Client* exclude) {
+    // Use a vector to collect clients to disconnect (avoid modifying vector during iteration)
+    std::vector<Client*> clientsToDisconnect;
+    
     for (size_t i = 0; i < _clients.size(); ++i) {
         if (_clients[i] != exclude && _clients[i]->isRegistered()) {
-            Utils::sendToClient(_clients[i], message);
+            bool shouldDisconnect = false;
+            bool result = Utils::sendToClientSafe(_clients[i], message, shouldDisconnect);
+            
+            if (shouldDisconnect) {
+                clientsToDisconnect.push_back(_clients[i]);
+            }
+            (void)result;  // Suppress unused variable warning
         }
+    }
+    
+    // Disconnect clients that had serious send errors
+    for (size_t i = 0; i < clientsToDisconnect.size(); ++i) {
+        std::cout << "Disconnecting client " << clientsToDisconnect[i]->getNickname() << " due to broadcast error" << std::endl;
+        handleClientDisconnect(clientsToDisconnect[i]);
     }
 }
 
@@ -468,8 +503,9 @@ bool Server::setupSocket() {
     // AF_INET = IPv4, SOCK_STREAM = TCP, 0 = default protocol
     _serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (_serverSocket < 0) {
-        std::cerr << "Error creating socket: " << strerror(errno) << std::endl;
-        return false;
+        std::string error = "Failed to create socket: ";
+        error += strerror(errno);
+        throw std::runtime_error(error);
     }
     
     // Set socket options
@@ -498,17 +534,21 @@ bool Server::setupSocket() {
     
     // bind() associates the socket with an address
     if (bind(_serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
-        std::cerr << "Error binding socket: " << strerror(errno) << std::endl;
+        std::string error = "Failed to bind socket to port ";
+        error += Utils::intToString(_port);
+        error += ": ";
+        error += strerror(errno);
         close(_serverSocket);
-        return false;
+        throw std::runtime_error(error);
     }
     
     // listen() marks the socket as passive (ready to accept connections)
     // 10 is the maximum number of pending connections
     if (listen(_serverSocket, 10) < 0) {
-        std::cerr << "Error listening on socket: " << strerror(errno) << std::endl;
+        std::string error = "Failed to listen on socket: ";
+        error += strerror(errno);
         close(_serverSocket);
-        return false;
+        throw std::runtime_error(error);
     }
     
     return true;
@@ -530,4 +570,57 @@ std::string Server::getClientHostname(int clientFd) {
 
     // inet_ntoa() converts IP address to string
     return inet_ntoa(clientAddr.sin_addr);
+}
+
+/**
+ * @brief Flush output buffer for a client
+ * @param client The client to flush output for
+ * 
+ * This function is called when POLLOUT event is triggered for a client.
+ * It attempts to send any buffered output data.
+ */
+void Server::flushClientOutputBuffer(Client* client) {
+    if (!client || !client->hasOutputBuffer()) {
+        return;  // Nothing to flush
+    }
+    
+    // Use Utils function to flush the buffer
+    bool fullyFlushed = Utils::flushOutputBuffer(client);
+    
+    // Check if a serious error occurred during flush
+    if (!fullyFlushed && !client->hasOutputBuffer()) {
+        // Buffer was cleared due to error - disconnect client
+        std::cout << "Disconnecting client " << client->getNickname() << " due to send error" << std::endl;
+        handleClientDisconnect(client);
+        return;
+    }
+    
+    if (!fullyFlushed) {
+        // Still has data to send, keep POLLOUT enabled
+        std::cout << "Client " << client->getNickname() << " still has buffered output" << std::endl;
+    }
+}
+
+/**
+ * @brief Send message to client with automatic disconnect handling
+ * @param client The client to send to
+ * @param message The message to send
+ * @return true if message was sent/buffered, false if client was disconnected
+ * 
+ * This is a wrapper around Utils::sendToClientSafe that automatically
+ * handles client disconnection on serious errors.
+ */
+bool Server::sendToClientSafe(Client* client, const std::string& message) {
+    if (!client) return false;
+    
+    bool shouldDisconnect = false;
+    bool result = Utils::sendToClientSafe(client, message, shouldDisconnect);
+    
+    if (shouldDisconnect) {
+        std::cout << "Disconnecting client " << client->getNickname() << " due to send error" << std::endl;
+        handleClientDisconnect(client);
+        return false;  // Client was disconnected
+    }
+    
+    return result;
 }

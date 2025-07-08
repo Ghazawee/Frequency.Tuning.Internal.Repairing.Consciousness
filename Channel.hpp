@@ -75,6 +75,7 @@ public:
     std::string getModeString() const;      // Returns the channel modes as a string
     std::string getUserList() const;        // Returns list of users for NAMES command
     void broadcast(const std::string& message, Client* exclude = NULL);  // Send message to all clients
+    std::vector<Client*> broadcastSafe(const std::string& message, Client* exclude = NULL);  // Send message, return disconnected clients
 };
 
 #endif

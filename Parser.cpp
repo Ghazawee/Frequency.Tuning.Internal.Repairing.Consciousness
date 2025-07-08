@@ -286,23 +286,34 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
     
     // Send JOIN message to all channel members
     std::string joinMsg = Utils::formatMessage(client->getPrefix(), "JOIN", channelName);
-    channel->broadcast(joinMsg);
+    std::vector<Client*> disconnectedClients = channel->broadcastSafe(joinMsg);
+    
+    // Handle disconnected clients
+    for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+        _server->handleClientDisconnect(disconnectedClients[i]);
+    }
     
     // Send topic if set
     if (!channel->getTopic().empty()) {
         std::string topicMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_TOPIC, client->getNickname(), 
                                                 channelName + " :" + channel->getTopic());
-        Utils::sendToClient(client, topicMsg);
+        if (!_server->sendToClientSafe(client, topicMsg)) {
+            return; // Client was disconnected
+        }
     }
     
     // Send names list
     std::string namesMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_NAMREPLY, client->getNickname(),
                                             "= " + channelName + " :" + channel->getUserList());
-    Utils::sendToClient(client, namesMsg);
+    if (!_server->sendToClientSafe(client, namesMsg)) {
+        return; // Client was disconnected
+    }
     
     std::string endNamesMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_ENDOFNAMES, client->getNickname(),
                                                channelName + " :End of /NAMES list");
-    Utils::sendToClient(client, endNamesMsg);
+    if (!_server->sendToClientSafe(client, endNamesMsg)) {
+        return; // Client was disconnected
+    }
 }
 
 /**
@@ -335,7 +346,12 @@ void Parser::handlePart(Client* client, const IRCCommand& cmd) {
         params += " :" + reason;
     }
     std::string partMsg = Utils::formatMessage(client->getPrefix(), "PART", params);
-    channel->broadcast(partMsg);
+    std::vector<Client*> disconnectedClients = channel->broadcastSafe(partMsg);
+    
+    // Handle disconnected clients
+    for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+        _server->handleClientDisconnect(disconnectedClients[i]);
+    }
     
     channel->removeClient(client);
     
@@ -381,7 +397,12 @@ void Parser::handlePrivmsg(Client* client, const IRCCommand& cmd) {
         }
         
         std::string privmsgMsg = Utils::formatMessage(client->getPrefix(), "PRIVMSG", target + " :" + message);
-        channel->broadcast(privmsgMsg, client);  // Exclude sender
+        std::vector<Client*> disconnectedClients = channel->broadcastSafe(privmsgMsg, client);  // Exclude sender
+        
+        // Handle disconnected clients
+        for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+            _server->handleClientDisconnect(disconnectedClients[i]);
+        }
     } else {
         // Private message to user
         Client* targetClient = _server->getClientByNick(target);
@@ -391,7 +412,9 @@ void Parser::handlePrivmsg(Client* client, const IRCCommand& cmd) {
         }
         
         std::string privmsgMsg = Utils::formatMessage(client->getPrefix(), "PRIVMSG", target + " :" + message);
-        Utils::sendToClient(targetClient, privmsgMsg);
+        _server->sendToClientSafe(targetClient, privmsgMsg);
+        // Note: If target client disconnects, they'll be cleaned up by poll events
+        // We don't return here since the sender's command was successful
     }
 }
 
@@ -439,7 +462,12 @@ void Parser::handleKick(Client* client, const IRCCommand& cmd) {
     // Send KICK message to all channel members
     std::string kickMsg = Utils::formatMessage(client->getPrefix(), "KICK", 
                                              channelName + " " + targetNick + " :" + reason);
-    channel->broadcast(kickMsg);
+    std::vector<Client*> disconnectedClients = channel->broadcastSafe(kickMsg);
+    
+    // Handle disconnected clients
+    for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+        _server->handleClientDisconnect(disconnectedClients[i]);
+    }
     
     channel->removeClient(targetClient);
 }
@@ -493,7 +521,8 @@ void Parser::handleInvite(Client* client, const IRCCommand& cmd) {
     
     // Send INVITE message to target
     std::string inviteMsg = Utils::formatMessage(client->getPrefix(), "INVITE", targetNick + " " + channelName);
-    Utils::sendToClient(targetClient, inviteMsg);
+    _server->sendToClientSafe(targetClient, inviteMsg);
+    // Note: If target client disconnects, invitation is still recorded in channel
 }
 
 /**
@@ -532,7 +561,9 @@ void Parser::handleTopic(Client* client, const IRCCommand& cmd) {
         } else {
             std::string topicMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_TOPIC, client->getNickname(),
                                                     channelName + " :" + channel->getTopic());
-            Utils::sendToClient(client, topicMsg);
+            if (!_server->sendToClientSafe(client, topicMsg)) {
+                return; // Client disconnected
+            }
         }
     } else {
         // Change topic
@@ -546,7 +577,12 @@ void Parser::handleTopic(Client* client, const IRCCommand& cmd) {
         
         // Broadcast topic change
         std::string topicMsg = Utils::formatMessage(client->getPrefix(), "TOPIC", channelName + " :" + newTopic);
-        channel->broadcast(topicMsg);
+        std::vector<Client*> disconnectedClients = channel->broadcastSafe(topicMsg);
+        
+        // Handle disconnected clients
+        for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+            _server->handleClientDisconnect(disconnectedClients[i]);
+        }
     }
 }
 
@@ -584,7 +620,9 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
             // View modes
             std::string modeMsg = Utils::formatReply(_server->getServerName(), IRC::RPL_CHANNELMODEIS, client->getNickname(),
                                                    target + " " + channel->getModeString());
-            Utils::sendToClient(client, modeMsg);
+            if (!_server->sendToClientSafe(client, modeMsg)) {
+                return; // Client disconnected
+            }
             return;
         }
         
@@ -640,7 +678,12 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
         
         // Broadcast mode change
         std::string modeMsg = Utils::formatMessage(client->getPrefix(), "MODE", target + " " + modeStr);
-        channel->broadcast(modeMsg);
+        std::vector<Client*> disconnectedClients = channel->broadcastSafe(modeMsg);
+        
+        // Handle disconnected clients
+        for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+            _server->handleClientDisconnect(disconnectedClients[i]);
+        }
     }
 }
 
@@ -672,50 +715,50 @@ void Parser::sendWelcome(Client* client) {
     // Send welcome sequence
     std::string welcome = Utils::formatReply(serverName, IRC::RPL_WELCOME, nick, 
                                            ":Welcome to the Internet Relay Network " + client->getPrefix());
-    Utils::sendToClient(client, welcome);
+    if (!_server->sendToClientSafe(client, welcome)) return;
     
     std::string yourhost = Utils::formatReply(serverName, IRC::RPL_YOURHOST, nick,
                                             ":Your host is " + serverName + ", running version 1.0");
-    Utils::sendToClient(client, yourhost);
+    if (!_server->sendToClientSafe(client, yourhost)) return;
     
     std::string created = Utils::formatReply(serverName, IRC::RPL_CREATED, nick,
                                            ":This server was created " + _server->getCreationTime());
-    Utils::sendToClient(client, created);
+    if (!_server->sendToClientSafe(client, created)) return;
     
     std::string myinfo = Utils::formatReply(serverName, IRC::RPL_MYINFO, nick,
                                           serverName + " 1.0 o itklno");
-    Utils::sendToClient(client, myinfo);
+    if (!_server->sendToClientSafe(client, myinfo)) return;
     
-    // Send command help manual
+    // Send command help manual (these are informational, if client disconnects it's fine)
     std::string manual1 = ":" + serverName + " NOTICE " + nick + " :Available Commands:";
-    Utils::sendToClient(client, manual1);
+    if (!_server->sendToClientSafe(client, manual1)) return;
     
     std::string manual2 = ":" + serverName + " NOTICE " + nick + " :JOIN #channel - Join a channel";
-    Utils::sendToClient(client, manual2);
+    if (!_server->sendToClientSafe(client, manual2)) return;
     
     std::string manual3 = ":" + serverName + " NOTICE " + nick + " :PART #channel - Leave a channel";
-    Utils::sendToClient(client, manual3);
+    if (!_server->sendToClientSafe(client, manual3)) return;
     
     std::string manual4 = ":" + serverName + " NOTICE " + nick + " :PRIVMSG #channel :message - Send message to channel";
-    Utils::sendToClient(client, manual4);
+    if (!_server->sendToClientSafe(client, manual4)) return;
     
     std::string manual5 = ":" + serverName + " NOTICE " + nick + " :PRIVMSG nickname :message - Send private message";
-    Utils::sendToClient(client, manual5);
+    if (!_server->sendToClientSafe(client, manual5)) return;
     
     std::string manual6 = ":" + serverName + " NOTICE " + nick + " :TOPIC #channel :topic - Set channel topic (ops only)";
-    Utils::sendToClient(client, manual6);
+    if (!_server->sendToClientSafe(client, manual6)) return;
     
     std::string manual7 = ":" + serverName + " NOTICE " + nick + " :KICK #channel nickname - Kick user (ops only)";
-    Utils::sendToClient(client, manual7);
+    if (!_server->sendToClientSafe(client, manual7)) return;
     
     std::string manual8 = ":" + serverName + " NOTICE " + nick + " :INVITE nickname #channel - Invite user (ops only)";
-    Utils::sendToClient(client, manual8);
+    if (!_server->sendToClientSafe(client, manual8)) return;
     
     std::string manual9 = ":" + serverName + " NOTICE " + nick + " :MODE #channel +/-itklno - Set channel modes (ops only)";
-    Utils::sendToClient(client, manual9);
+    if (!_server->sendToClientSafe(client, manual9)) return;
     
     std::string manual10 = ":" + serverName + " NOTICE " + nick + " :QUIT - Disconnect from server";
-    Utils::sendToClient(client, manual10);
+    if (!_server->sendToClientSafe(client, manual10)) return;
     
     client->setWelcomeSent(true);
 }
@@ -729,5 +772,6 @@ void Parser::sendWelcome(Client* client) {
 void Parser::sendError(Client* client, int errorCode, const std::string& message) {
     std::string nick = client->getNickname().empty() ? "*" : client->getNickname();
     std::string errorMsg = Utils::formatReply(_server->getServerName(), errorCode, nick, message);
-    Utils::sendToClient(client, errorMsg);
+    _server->sendToClientSafe(client, errorMsg);
+    // Note: If client disconnects on error, that's acceptable behavior
 }

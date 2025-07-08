@@ -175,6 +175,37 @@ void Client::clearBuffer() {
 }
 
 /**
+ * @brief Check if client has data in output buffer
+ * @return true if output buffer is not empty
+ */
+bool Client::hasOutputBuffer() const {
+    return !_outputBuffer.empty();
+}
+
+/**
+ * @brief Set the output buffer content
+ * @param data The data to store in output buffer
+ */
+void Client::setOutputBuffer(const std::string& data) {
+    _outputBuffer = data;
+}
+
+/**
+ * @brief Get reference to output buffer
+ * @return Reference to output buffer string
+ */
+std::string& Client::getOutputBuffer() {
+    return _outputBuffer;
+}
+
+/**
+ * @brief Clear the output buffer
+ */
+void Client::clearOutputBuffer() {
+    _outputBuffer.clear();
+}
+
+/**
  * @brief Get the IRC prefix for this client
  * @return The prefix string in format "nickname!username@hostname"
  * 
