@@ -215,3 +215,4 @@ void Client::clearOutputBuffer() {
 std::string Client::getPrefix() const {
     return _nickname + "!" + _username + "@" + _hostname;
 }
+

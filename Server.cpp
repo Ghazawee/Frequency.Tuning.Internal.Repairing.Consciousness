@@ -229,6 +229,13 @@ void Server::acceptNewClient() {
 void Server::removeClient(Client* client) {
     if (!client) return;
     
+    // Check if client is still in our list (prevent double-deletion)
+    std::vector<Client*>::iterator clientIt = std::find(_clients.begin(), _clients.end(), client);
+    if (clientIt == _clients.end()) {
+        // Client already removed
+        return;
+    }
+    
     std::cout << "Removing client " << client->getNickname() << " (fd: " << client->getFd() << ")" << std::endl;
     
     // Remove client from all channels
@@ -267,10 +274,7 @@ void Server::removeClient(Client* client) {
     close(client->getFd());
     
     // Remove from clients vector
-    std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), client);
-    if (it != _clients.end()) {
-        _clients.erase(it);
-    }
+    _clients.erase(clientIt);
     
     // Delete client object
     delete client;
@@ -437,6 +441,15 @@ void Server::processClientData(Client* client) {
  * @param client The client that disconnected
  */
 void Server::handleClientDisconnect(Client* client) {
+    if (!client) return;
+    
+    // Check if client is still in our list (prevent double-deletion)
+    std::vector<Client*>::iterator it = std::find(_clients.begin(), _clients.end(), client);
+    if (it == _clients.end()) {
+        // Client already removed
+        return;
+    }
+    
     removeClient(client);
 }
 

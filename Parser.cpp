@@ -107,25 +107,42 @@ void Parser::executeCommand(Client* client, const IRCCommand& cmd) {
         handleNick(client, cmd);
     } else if (cmd.command == "USER") {
         handleUser(client, cmd);
-    } else if (cmd.command == "JOIN") {
-        handleJoin(client, cmd);
-    } else if (cmd.command == "PART") {
-        handlePart(client, cmd);
-    } else if (cmd.command == "PRIVMSG") {
-        handlePrivmsg(client, cmd);
-    } else if (cmd.command == "KICK") {
-        handleKick(client, cmd);
-    } else if (cmd.command == "INVITE") {
-        handleInvite(client, cmd);
-    } else if (cmd.command == "TOPIC") {
-        handleTopic(client, cmd);
-    } else if (cmd.command == "MODE") {
-        handleMode(client, cmd);
     } else if (cmd.command == "QUIT") {
         handleQuit(client, cmd);
+    } else if (cmd.command == "CAP") {
+        handleCap(client, cmd);
+        return;
     } else {
-        // Unknown command
-        sendError(client, IRC::ERR_UNKNOWNCOMMAND, cmd.command + " :Unknown command");
+        // For all other commands, require authentication
+        if (!client->isAuthenticated()) {
+            sendError(client, IRC::ERR_PASSWDMISMATCH, ":Password required");
+            return;
+        }
+        
+        if (cmd.command == "JOIN") {
+            handleJoin(client, cmd);
+        } else if (cmd.command == "PART") {
+            handlePart(client, cmd);
+        } else if (cmd.command == "PRIVMSG") {
+            handlePrivmsg(client, cmd);
+        } else if (cmd.command == "KICK") {
+            handleKick(client, cmd);
+        } else if (cmd.command == "INVITE") {
+            handleInvite(client, cmd);
+        } else if (cmd.command == "TOPIC") {
+            handleTopic(client, cmd);
+        } else if (cmd.command == "MODE") {
+            handleMode(client, cmd);
+        } else if (cmd.command == "PING") {
+            handlePing(client, cmd);
+        } else if (cmd.command == "WHO") {
+            handleWho(client, cmd);
+        } else if (cmd.command == "WHOIS") {
+            handleWhois(client, cmd);
+        } else {
+            // Unknown command
+            sendError(client, IRC::ERR_UNKNOWNCOMMAND, cmd.command + " :Unknown command");
+        }
     }
 }
 
@@ -137,23 +154,32 @@ void Parser::executeCommand(Client* client, const IRCCommand& cmd) {
  * PASS command sets the connection password. Must be sent before NICK/USER.
  */
 void Parser::handlePass(Client* client, const IRCCommand& cmd) {
-    if (client->isRegistered()) {
+    // If client is already authenticated, reject
+    if (client->isAuthenticated()) {
         sendError(client, IRC::ERR_ALREADYREGISTERED, ":You may not reregister");
         return;
     }
     
+    // Check if password is provided
     if (cmd.params.empty()) {
         sendError(client, IRC::ERR_NEEDMOREPARAMS, "PASS :Not enough parameters");
         return;
     }
     
-    if (cmd.params[0] == _server->getPassword()) {
+    // Extract password (may have a prefix ":")
+    std::string password = cmd.params[0];
+    if (!password.empty() && password[0] == ':') {
+        password = password.substr(1);
+    }
+    
+    // Validate password
+    if (password == _server->getPassword()) {
         client->setAuthenticated(true);
-        // No response is sent for successful PASS according to RFC 1459
-        // The client will know it succeeded when they don't get ERR_PASSWDMISMATCH
+        // No success message is sent for PASS command
     } else {
         sendError(client, IRC::ERR_PASSWDMISMATCH, ":Password incorrect");
-        // Keep client connected, let them try again
+        // Note: We do NOT disconnect the client on wrong password.
+        // The client remains connected but cannot proceed with registration.
     }
 }
 
@@ -165,12 +191,6 @@ void Parser::handlePass(Client* client, const IRCCommand& cmd) {
 void Parser::handleNick(Client* client, const IRCCommand& cmd) {
     if (cmd.params.empty()) {
         sendError(client, IRC::ERR_NONICKNAMEGIVEN, ":No nickname given");
-        return;
-    }
-    
-    // Require authentication before setting nickname
-    if (!client->isAuthenticated()) {
-        sendError(client, IRC::ERR_NOTREGISTERED, ":You have not registered");
         return;
     }
     
@@ -201,6 +221,9 @@ void Parser::handleNick(Client* client, const IRCCommand& cmd) {
     if (client->isAuthenticated() && !client->getUsername().empty() && !client->isRegistered()) {
         client->setRegistered(true);
         sendWelcome(client);
+    } else if (!client->isAuthenticated()) {
+        // Send error to let client know authentication is required
+        sendError(client, IRC::ERR_PASSWDMISMATCH, ":Password required");
     }
 }
 
@@ -212,12 +235,6 @@ void Parser::handleNick(Client* client, const IRCCommand& cmd) {
 void Parser::handleUser(Client* client, const IRCCommand& cmd) {
     if (client->isRegistered()) {
         sendError(client, IRC::ERR_ALREADYREGISTERED, ":You may not reregister");
-        return;
-    }
-    
-    // Require authentication before setting user info
-    if (!client->isAuthenticated()) {
-        sendError(client, IRC::ERR_NOTREGISTERED, ":You have not registered");
         return;
     }
     
@@ -233,6 +250,9 @@ void Parser::handleUser(Client* client, const IRCCommand& cmd) {
     if (client->isAuthenticated() && !client->getNickname().empty() && !client->isRegistered()) {
         client->setRegistered(true);
         sendWelcome(client);
+    } else if (!client->isAuthenticated()) {
+        // Send error to let client know authentication is required
+        sendError(client, IRC::ERR_PASSWDMISMATCH, ":Password required");
     }
 }
 
@@ -522,7 +542,6 @@ void Parser::handleInvite(Client* client, const IRCCommand& cmd) {
     // Send INVITE message to target
     std::string inviteMsg = Utils::formatMessage(client->getPrefix(), "INVITE", targetNick + " " + channelName);
     _server->sendToClientSafe(targetClient, inviteMsg);
-    // Note: If target client disconnects, invitation is still recorded in channel
 }
 
 /**
@@ -626,6 +645,8 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
             return;
         }
         
+
+        
         if (!channel->isOperator(client)) {
             sendError(client, IRC::ERR_CHANOPRIVSNEEDED, target + " :You're not channel operator");
             return;
@@ -633,8 +654,11 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
         
         // Parse mode changes
         std::string modeStr = cmd.params[1];
+        
+        // Parse mode changes
         bool adding = true;
         size_t paramIndex = 2;
+        bool modeChanged = false;
         
         for (size_t i = 0; i < modeStr.length(); ++i) {
             char mode = modeStr[i];
@@ -645,22 +669,28 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
                 adding = false;
             } else if (mode == 'i') {
                 channel->setInviteOnly(adding);
+                modeChanged = true;
             } else if (mode == 't') {
                 channel->setTopicRestricted(adding);
+                modeChanged = true;
             } else if (mode == 'k') {
                 if (adding && paramIndex < cmd.params.size()) {
                     channel->setKey(cmd.params[paramIndex++]);
+                    modeChanged = true;
                 } else if (!adding) {
                     channel->removeKey();
+                    modeChanged = true;
                 }
             } else if (mode == 'l') {
                 if (adding && paramIndex < cmd.params.size()) {
                     int limit;
                     if (Utils::stringToInt(cmd.params[paramIndex++], limit) && limit > 0) {
                         channel->setUserLimit(static_cast<size_t>(limit));
+                        modeChanged = true;
                     }
                 } else if (!adding) {
                     channel->removeUserLimit();
+                    modeChanged = true;
                 }
             } else if (mode == 'o') {
                 if (paramIndex < cmd.params.size()) {
@@ -671,18 +701,21 @@ void Parser::handleMode(Client* client, const IRCCommand& cmd) {
                         } else {
                             channel->removeOperator(targetClient);
                         }
+                        modeChanged = true;
                     }
                 }
             }
         }
         
-        // Broadcast mode change
-        std::string modeMsg = Utils::formatMessage(client->getPrefix(), "MODE", target + " " + modeStr);
-        std::vector<Client*> disconnectedClients = channel->broadcastSafe(modeMsg);
-        
-        // Handle disconnected clients
-        for (size_t i = 0; i < disconnectedClients.size(); ++i) {
-            _server->handleClientDisconnect(disconnectedClients[i]);
+        // Only broadcast if we actually changed something
+        if (modeChanged) {
+            std::string modeMsg = Utils::formatMessage(client->getPrefix(), "MODE", target + " " + modeStr);
+            std::vector<Client*> disconnectedClients = channel->broadcastSafe(modeMsg);
+            
+            // Handle disconnected clients
+            for (size_t i = 0; i < disconnectedClients.size(); ++i) {
+                _server->handleClientDisconnect(disconnectedClients[i]);
+            }
         }
     }
 }
@@ -774,4 +807,134 @@ void Parser::sendError(Client* client, int errorCode, const std::string& message
     std::string errorMsg = Utils::formatReply(_server->getServerName(), errorCode, nick, message);
     _server->sendToClientSafe(client, errorMsg);
     // Note: If client disconnects on error, that's acceptable behavior
+}
+
+/**
+ * @brief Handle PING command (keepalive)
+ * @param client The client
+ * @param cmd The command
+ */
+void Parser::handlePing(Client* client, const IRCCommand& cmd) {
+    std::string target = cmd.params.empty() ? _server->getServerName() : cmd.params[0];
+    std::string pongMsg = ":" + _server->getServerName() + " PONG " + _server->getServerName() + " :" + target;
+    _server->sendToClientSafe(client, pongMsg);
+}
+
+/**
+ * @brief Handle WHO command (list users)
+ * @param client The client  
+ * @param cmd The command
+ */
+void Parser::handleWho(Client* client, const IRCCommand& cmd) {
+    if (!client->isRegistered()) {
+        return;
+    }
+    
+    std::string target = cmd.params.empty() ? "*" : cmd.params[0];
+    std::string nick = client->getNickname();
+    std::string serverName = _server->getServerName();
+    
+    if (target.empty() || target == "*") {
+        // WHO with no target - return all users (simplified)
+        std::string whoReply = Utils::formatReply(serverName, IRC::RPL_ENDOFWHO, nick, "* :End of WHO list");
+        _server->sendToClientSafe(client, whoReply);
+    } else if (target[0] == '#') {
+        // WHO for a channel
+        Channel* channel = _server->getChannel(target);
+        if (channel && channel->hasClient(client)) {
+            // Return basic WHO info for channel members
+            const std::vector<Client*>& clients = channel->getClients();
+            for (size_t i = 0; i < clients.size(); ++i) {
+                std::string whoInfo = Utils::formatReply(serverName, IRC::RPL_WHOREPLY, nick,
+                    target + " " + clients[i]->getUsername() + " " + clients[i]->getHostname() + 
+                    " " + serverName + " " + clients[i]->getNickname() + " H :0 " + clients[i]->getRealname());
+                if (!_server->sendToClientSafe(client, whoInfo)) return;
+            }
+        }
+        std::string whoEnd = Utils::formatReply(serverName, IRC::RPL_ENDOFWHO, nick, target + " :End of WHO list");
+        _server->sendToClientSafe(client, whoEnd);
+    } else {
+        // WHO for a specific user
+        Client* targetClient = _server->getClientByNick(target);
+        if (targetClient) {
+            std::string whoInfo = Utils::formatReply(serverName, IRC::RPL_WHOREPLY, nick,
+                "* " + targetClient->getUsername() + " " + targetClient->getHostname() + 
+                " " + serverName + " " + targetClient->getNickname() + " H :0 " + targetClient->getRealname());
+            if (!_server->sendToClientSafe(client, whoInfo)) return;
+        }
+        std::string whoEnd = Utils::formatReply(serverName, IRC::RPL_ENDOFWHO, nick, target + " :End of WHO list");
+        _server->sendToClientSafe(client, whoEnd);
+    }
+}
+
+/**
+ * @brief Handle WHOIS command (get user info)
+ * @param client The client
+ * @param cmd The command  
+ */
+void Parser::handleWhois(Client* client, const IRCCommand& cmd) {
+    if (!client->isRegistered()) {
+        return;
+    }
+    
+    if (cmd.params.empty()) {
+        sendError(client, IRC::ERR_NEEDMOREPARAMS, "WHOIS :Not enough parameters");
+        return;
+    }
+    
+    std::string targetNick = cmd.params[0];
+    std::string nick = client->getNickname();
+    std::string serverName = _server->getServerName();
+    
+    Client* targetClient = _server->getClientByNick(targetNick);
+    if (!targetClient) {
+        sendError(client, IRC::ERR_NOSUCHNICK, targetNick + " :No such nick/channel");
+        return;
+    }
+    
+    // Send WHOIS information
+    std::string whoisUser = Utils::formatReply(serverName, IRC::RPL_WHOISUSER, nick,
+        targetNick + " " + targetClient->getUsername() + " " + targetClient->getHostname() + " * :" + targetClient->getRealname());
+    if (!_server->sendToClientSafe(client, whoisUser)) return;
+    
+    std::string whoisServer = Utils::formatReply(serverName, IRC::RPL_WHOISSERVER, nick,
+        targetNick + " " + serverName + " :ft_irc server");
+    if (!_server->sendToClientSafe(client, whoisServer)) return;
+    
+    std::string whoisEnd = Utils::formatReply(serverName, IRC::RPL_ENDOFWHOIS, nick,
+        targetNick + " :End of WHOIS list");
+    _server->sendToClientSafe(client, whoisEnd);
+}
+
+/**
+ * @brief Handle CAP command (client capabilities negotiation)
+ * @param client The client
+ * @param cmd The command
+ * 
+ * CAP command is used by modern IRC clients to negotiate capabilities.
+ * We provide minimal responses to keep clients happy.
+ */
+void Parser::handleCap(Client* client, const IRCCommand& cmd) {
+    if (cmd.params.empty()) {
+        return; // Ignore malformed CAP commands
+    }
+    
+    std::string subcommand = cmd.params[0];
+    std::string nick = client->getNickname().empty() ? "*" : client->getNickname();
+    
+    if (subcommand == "LS") {
+        // Client asks: "What capabilities do you support?"
+        // We support nothing, so send empty list
+        std::string response = ":ft_irc.42.fr CAP " + nick + " LS :";
+        _server->sendToClientSafe(client, response);
+    } else if (subcommand == "REQ") {
+        // Client requests capabilities - we deny all requests
+        if (cmd.params.size() > 1) {
+            std::string response = ":ft_irc.42.fr CAP " + nick + " NAK :" + cmd.params[1];
+            _server->sendToClientSafe(client, response);
+        }
+    } else if (subcommand == "END") {
+        // Client ends CAP negotiation - nothing to do
+        return;
+    }
 }

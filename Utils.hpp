@@ -53,8 +53,13 @@ namespace IRC {
     const int RPL_MYINFO = 004;
     
     // Command response codes (300-399)
+    const int RPL_WHOISUSER = 311;
+    const int RPL_WHOISSERVER = 312;
+    const int RPL_ENDOFWHOIS = 318;
     const int RPL_TOPIC = 332;
+    const int RPL_WHOREPLY = 352;
     const int RPL_NAMREPLY = 353;
+    const int RPL_ENDOFWHO = 315;
     const int RPL_ENDOFNAMES = 366;
     const int RPL_CHANNELMODEIS = 324;
     

@@ -51,6 +51,10 @@ public:
     void handleTopic(Client* client, const IRCCommand& cmd);
     void handleMode(Client* client, const IRCCommand& cmd);
     void handleQuit(Client* client, const IRCCommand& cmd);
+    void handlePing(Client* client, const IRCCommand& cmd);
+    void handleWho(Client* client, const IRCCommand& cmd);
+    void handleWhois(Client* client, const IRCCommand& cmd);
+    void handleCap(Client* client, const IRCCommand& cmd);
     
     // Helper functions
     void sendWelcome(Client* client);
