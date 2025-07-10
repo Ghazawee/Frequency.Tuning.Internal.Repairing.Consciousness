@@ -23,6 +23,10 @@ std::vector<std::string> Utils::split(const std::string& str, char delimiter) {
         if (!item.empty()) {  // Skip empty strings
             result.push_back(item);
         }
+        else if(item.empty()){
+            item = "";
+            result.push_back(item); // Add empty string if delimiter is at the end
+        }
     }
     
     return result;

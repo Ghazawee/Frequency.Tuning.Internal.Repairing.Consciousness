@@ -16,6 +16,10 @@ struct IRCCommand {
     std::string prefix;                    // Optional prefix (usually empty for client commands)
     std::string command;                   // The IRC command (NICK, USER, JOIN, etc.)
     std::vector<std::string> params;       // Command parameters
+    std::vector<std::string> channels;
+    std::vector<std::string> keys;
+    bool flags;
+    int paramCount;                  // Number of parameters (for convenience)
 };
 
 /**

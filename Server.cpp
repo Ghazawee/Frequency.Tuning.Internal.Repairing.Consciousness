@@ -46,6 +46,7 @@ Server::Server(int port, const std::string& password)
     
     // Set up signal handler for graceful shutdown
     signal(SIGINT, Server::signalHandler);
+    signal(SIGQUIT, Server::signalHandler);  // Handle SIGQUIT for graceful shutdown
     signal(SIGTERM, Server::signalHandler);  // Also handle SIGTERM for proper cleanup//maybe not needed
     signal(SIGPIPE, SIG_IGN);  // Ignore SIGPIPE (broken pipe)
     //maybe SIGQUIT as well?

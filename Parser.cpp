@@ -60,7 +60,7 @@ IRCCommand Parser::parseCommand(const std::string& message) {
     
     cmd.command = line.substr(pos, cmdEnd - pos);  // Keep original case
     pos = cmdEnd + 1;
-    
+
     // Extract parameters
     while (pos < line.length()) {
         // Skip whitespace
@@ -79,9 +79,29 @@ IRCCommand Parser::parseCommand(const std::string& message) {
         // Regular parameter
         size_t paramEnd = line.find(' ', pos);
         if (paramEnd == std::string::npos) {
+            if(cmd.command == "JOIN" && cmd.flags)
+            {
+                cmd.keys.clear();
+                cmd.keys = Utils::split(line.substr(pos), ',');
+                cmd.flags = false; // Reset flags after processing JOIN
+                break;
+            }
+            if(cmd.command == "JOIN" && !cmd.flags)
+            {
+                cmd.channels.clear();
+                cmd.channels = Utils::split(line.substr(pos), ',');
+                cmd.flags = false; // Reset flags after processing JOIN
+                break;
+            }
             cmd.params.push_back(line.substr(pos));
             break;
         } else {
+            if(cmd.command == "JOIN" && !cmd.flags){
+                cmd.flags = true; 
+                cmd.channels.clear();
+                cmd.channels = Utils::split(line.substr(pos, paramEnd - pos), ',');
+                pos = paramEnd + 1;
+            }
             cmd.params.push_back(line.substr(pos, paramEnd - pos));
             pos = paramEnd + 1;
         }
@@ -266,13 +286,19 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
         return;  // Ignore if not registered
     }
     
-    if (cmd.params.empty()) {
+    // if (cmd.params.empty()) {
+    //     sendError(client, IRC::ERR_NEEDMOREPARAMS, "JOIN :Not enough parameters");
+    //     return;
+    // }
+    if (cmd.channels.empty()) {
         sendError(client, IRC::ERR_NEEDMOREPARAMS, "JOIN :Not enough parameters");
         return;
     }
-    
-    std::string channelName = cmd.params[0];
-    std::string key = cmd.params.size() > 1 ? cmd.params[1] : "";
+   for (size_t i = 0; i < cmd.channels.size(); i++){
+    // std::string channelName = cmd.params[0];
+    // std::string key = cmd.params.size() > 1 ? cmd.params[1] : "";
+    std::string channelName = cmd.channels[i];
+    std::string key = i < cmd.keys.size() ? cmd.keys[i] : "";
     
     if (!Utils::isValidChannelName(channelName)) {
         sendError(client, IRC::ERR_NOSUCHCHANNEL, channelName + " :No such channel");
@@ -333,6 +359,7 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
                                                channelName + " :End of /NAMES list");
     if (!_server->sendToClientSafe(client, endNamesMsg)) {
         return; // Client was disconnected
+    }
     }
 }
 
