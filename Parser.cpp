@@ -72,37 +72,42 @@ IRCCommand Parser::parseCommand(const std::string& message) {
         
         // Check for trailing parameter (starts with :)
         if (line[pos] == ':') {
-            cmd.params.push_back(line.substr(pos + 1));
+            std::string trailingParam = line.substr(pos + 1);
+            cmd.params.push_back(trailingParam);
+            
+            // Handle JOIN special case - if it's a trailing parameter, treat as channels
+            if (cmd.command == "JOIN" && !trailingParam.empty()) {
+                cmd.channels = Utils::split(trailingParam, ',');
+            }
             break;
         }
         
         // Regular parameter
         size_t paramEnd = line.find(' ', pos);
         if (paramEnd == std::string::npos) {
-            if(cmd.command == "JOIN" && cmd.flags)
-            {
-                cmd.keys.clear();
-                cmd.keys = Utils::split(line.substr(pos), ',');
-                cmd.flags = false; // Reset flags after processing JOIN
-                break;
+            std::string param = line.substr(pos);
+            cmd.params.push_back(param);
+            
+            // Handle JOIN special case
+            if (cmd.command == "JOIN") {
+                if (cmd.flags) {
+                    // This is the second parameter (keys)
+                    cmd.keys = Utils::split(param, ',');
+                } else {
+                    // This is the first parameter (channels)
+                    cmd.channels = Utils::split(param, ',');
+                }
             }
-            if(cmd.command == "JOIN" && !cmd.flags)
-            {
-                cmd.channels.clear();
-                cmd.channels = Utils::split(line.substr(pos), ',');
-                cmd.flags = false; // Reset flags after processing JOIN
-                break;
-            }
-            cmd.params.push_back(line.substr(pos));
             break;
         } else {
-            if(cmd.command == "JOIN" && !cmd.flags){
-                cmd.flags = true; 
-                cmd.channels.clear();
-                cmd.channels = Utils::split(line.substr(pos, paramEnd - pos), ',');
-                pos = paramEnd + 1;
+            std::string param = line.substr(pos, paramEnd - pos);
+            cmd.params.push_back(param);
+            
+            // Handle JOIN special case for first parameter
+            if (cmd.command == "JOIN" && !cmd.flags) {
+                cmd.flags = true;
+                cmd.channels = Utils::split(param, ',');
             }
-            cmd.params.push_back(line.substr(pos, paramEnd - pos));
             pos = paramEnd + 1;
         }
     }
@@ -286,19 +291,28 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
         return;  // Ignore if not registered
     }
     
-    // if (cmd.params.empty()) {
-    //     sendError(client, IRC::ERR_NEEDMOREPARAMS, "JOIN :Not enough parameters");
-    //     return;
-    // }
-    if (cmd.channels.empty()) {
+    // Check if we have channels to join
+    std::vector<std::string> channelsToJoin;
+    std::vector<std::string> keysToUse;
+    
+    if (!cmd.channels.empty()) {
+        // Use the parsed channels
+        channelsToJoin = cmd.channels;
+        keysToUse = cmd.keys;
+    } else if (!cmd.params.empty() && !cmd.params[0].empty()) {
+        // Fall back to regular parameter parsing
+        channelsToJoin = Utils::split(cmd.params[0], ',');
+        if (cmd.params.size() > 1) {
+            keysToUse = Utils::split(cmd.params[1], ',');
+        }
+    } else {
         sendError(client, IRC::ERR_NEEDMOREPARAMS, "JOIN :Not enough parameters");
         return;
     }
-   for (size_t i = 0; i < cmd.channels.size(); i++){
-    // std::string channelName = cmd.params[0];
-    // std::string key = cmd.params.size() > 1 ? cmd.params[1] : "";
-    std::string channelName = cmd.channels[i];
-    std::string key = i < cmd.keys.size() ? cmd.keys[i] : "";
+    
+    for (size_t i = 0; i < channelsToJoin.size(); i++) {
+        std::string channelName = channelsToJoin[i];
+        std::string key = i < keysToUse.size() ? keysToUse[i] : "";
     
     if (!Utils::isValidChannelName(channelName)) {
         sendError(client, IRC::ERR_NOSUCHCHANNEL, channelName + " :No such channel");
