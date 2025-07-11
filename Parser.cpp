@@ -74,11 +74,6 @@ IRCCommand Parser::parseCommand(const std::string& message) {
         if (line[pos] == ':') {
             std::string trailingParam = line.substr(pos + 1);
             cmd.params.push_back(trailingParam);
-            
-            // Handle JOIN special case - if it's a trailing parameter, treat as channels
-            if (cmd.command == "JOIN" && !trailingParam.empty()) {
-                cmd.channels = Utils::split(trailingParam, ',');
-            }
             break;
         }
         
@@ -87,27 +82,10 @@ IRCCommand Parser::parseCommand(const std::string& message) {
         if (paramEnd == std::string::npos) {
             std::string param = line.substr(pos);
             cmd.params.push_back(param);
-            
-            // Handle JOIN special case
-            if (cmd.command == "JOIN") {
-                if (cmd.flags) {
-                    // This is the second parameter (keys)
-                    cmd.keys = Utils::split(param, ',');
-                } else {
-                    // This is the first parameter (channels)
-                    cmd.channels = Utils::split(param, ',');
-                }
-            }
             break;
         } else {
             std::string param = line.substr(pos, paramEnd - pos);
             cmd.params.push_back(param);
-            
-            // Handle JOIN special case for first parameter
-            if (cmd.command == "JOIN" && !cmd.flags) {
-                cmd.flags = true;
-                cmd.channels = Utils::split(param, ',');
-            }
             pos = paramEnd + 1;
         }
     }
@@ -291,33 +269,32 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
         return;  // Ignore if not registered
     }
     
-    // Check if we have channels to join
-    std::vector<std::string> channelsToJoin;
-    std::vector<std::string> keysToUse;
-    
-    if (!cmd.channels.empty()) {
-        // Use the parsed channels
-        channelsToJoin = cmd.channels;
-        keysToUse = cmd.keys;
-    } else if (!cmd.params.empty() && !cmd.params[0].empty()) {
-        // Fall back to regular parameter parsing
-        channelsToJoin = Utils::split(cmd.params[0], ',');
-        if (cmd.params.size() > 1) {
-            keysToUse = Utils::split(cmd.params[1], ',');
-        }
-    } else {
+    // Check if we have parameters
+    if (cmd.params.empty() || cmd.params[0].empty()) {
         sendError(client, IRC::ERR_NEEDMOREPARAMS, "JOIN :Not enough parameters");
         return;
+    }
+    
+    // Split channels and keys from parameters
+    std::vector<std::string> channelsToJoin = Utils::split(cmd.params[0], ',');
+    std::vector<std::string> keysToUse;
+    if (cmd.params.size() > 1) {
+        keysToUse = Utils::split(cmd.params[1], ',');
     }
     
     for (size_t i = 0; i < channelsToJoin.size(); i++) {
         std::string channelName = channelsToJoin[i];
         std::string key = i < keysToUse.size() ? keysToUse[i] : "";
+        
+        // Skip empty channel names (from double commas like "gen,,world")
+        if (channelName.empty()) {
+            continue;
+        }
     
-    if (!Utils::isValidChannelName(channelName)) {
-        sendError(client, IRC::ERR_NOSUCHCHANNEL, channelName + " :No such channel");
-        return;
-    }
+        if (!Utils::isValidChannelName(channelName)) {
+            sendError(client, IRC::ERR_NOSUCHCHANNEL, channelName + " :No such channel");
+            continue; // Continue with next channel instead of returning
+        }
     
     Channel* channel = _server->getChannel(channelName);
     if (!channel) {
@@ -327,17 +304,17 @@ void Parser::handleJoin(Client* client, const IRCCommand& cmd) {
     // Check channel restrictions
     if (channel->isInviteOnly() && !channel->isInvited(client)) {
         sendError(client, IRC::ERR_INVITEONLYCHAN, channelName + " :Cannot join channel (+i)");
-        return;
+        continue;
     }
     
     if (channel->hasKey() && channel->getKey() != key) {
         sendError(client, IRC::ERR_BADCHANNELKEY, channelName + " :Cannot join channel (+k)");
-        return;
+        continue;
     }
     
     if (channel->hasUserLimit() && channel->getClientCount() >= channel->getUserLimit()) {
         sendError(client, IRC::ERR_CHANNELISFULL, channelName + " :Cannot join channel (+l)");
-        return;
+        continue;
     }
     
     // Add client to channel
