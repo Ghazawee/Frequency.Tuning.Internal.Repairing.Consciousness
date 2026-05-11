@@ -1,214 +1,174 @@
-# ft_irc - IRC Server Implementation
+# ft_irc
 
-A fully functional IRC server implementation in C++98 for the 42 school project. This server handles multiple clients simultaneously using non-blocking I/O with `poll()` and implements core IRC commands and channel operations.
+![C++98](https://img.shields.io/badge/C%2B%2B-C%2B%2B98-blue)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20POSIX-lightgrey)
+![Protocol](https://img.shields.io/badge/Protocol-IRC%20RFC%201459-orange)
 
-## 🚀 Features
+## Overview
 
-### Core Functionality
-- **Multi-client support** with non-blocking I/O using `poll()`
-- **Password authentication** for server access
-- **User registration** (NICK/USER commands)
-- **Channel operations** (JOIN/PART/KICK/INVITE)
-- **Message handling** (PRIVMSG to users and channels)
-- **Channel management** (TOPIC/MODE commands)
-- **Graceful shutdown** with SIGINT handling
+`ft_irc` is a C++98 IRC server that accepts multiple clients at once, manages channel state, and implements the core IRC workflow needed for the 42 school project.
 
-### IRC Commands Implemented
-- `PASS` - Server password authentication
-- `NICK` - Set or change nickname
-- `USER` - User registration
-- `JOIN` - Join channels
-- `PART` - Leave channels
-- `PRIVMSG` - Send messages to users/channels
-- `KICK` - Remove users from channels (operator only)
-- `INVITE` - Invite users to channels (operator only)
-- `TOPIC` - View/set channel topic
-- `MODE` - Set channel modes (i/t/k/o/l)
-- `QUIT` - Disconnect from server
+It uses non-blocking sockets with `poll()`, password-based access, and buffered writes to handle partial sends safely.
 
-### Channel Features
-- **Channel operators** with special privileges
-- **Channel modes**: invite-only (i), topic restriction (t), key protection (k), user limit (l)
-- **User limit enforcement**
-- **Invite-only channels**
-- **Key-protected channels**
+## Table of Contents
 
-## 🏗️ Architecture
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Usage Notes](#usage-notes)
+- [Core Functional Coverage](#core-functional-coverage)
+- [Feature Breakdown](#feature-breakdown)
+- [Additional Notes](#additional-notes)
 
-### Class Structure
+## Highlights
+
+- Multiple clients handled through `poll()`
+- Password-required server startup and client authentication
+- Channel join, part, message, invite, kick, topic, and mode handling
+- Channel modes `+i`, `+t`, `+k`, and `+l`
+- Buffered outgoing messages for partial `send()` results
+- Graceful shutdown on `SIGINT`
+- IRC replies for user registration, channel membership, and error cases
+
+## Architecture
+
+The project is split into a small set of focused classes:
+
+- `Server` manages sockets, client lifetimes, and the main event loop
+- `Client` stores user state such as nickname, username, authentication, and buffers
+- `Channel` tracks members, operators, topic, invitation state, and mode flags
+- `Parser` interprets IRC commands and dispatches them to the correct handlers
+- `Utils` contains helper functions for formatting, parsing, validation, and socket writes
+
+The server accepts incoming connections, makes client sockets non-blocking, then uses `poll()` to read commands and flush pending output.
+
+## Tech Stack
+
+- Language: C++98
+- Build system: Make
+- Networking: POSIX sockets, `poll()`, `fcntl()`, `send()`, `recv()`
+- Platform: Linux or any POSIX-like environment
+
+## Project Structure
+
+```text
+main.cpp          - Program entry point and argument validation
+Server.cpp/.hpp   - Socket setup, event loop, and client management
+Client.cpp/.hpp   - Per-client state and output buffering
+Channel.cpp/.hpp  - Channel membership, modes, topic, and invitations
+Parser.cpp/.hpp   - IRC command parsing and handlers
+Utils.cpp/.hpp    - Helper utilities and message formatting
+ircserv.hpp       - Shared includes and forward declarations
+Makefile          - Build rules
+README.md         - Project overview and usage
+DOCUMENTATION.md  - Additional implementation notes
+USAGE.md          - Example usage
+POLLOUT_IMPLEMENTATION.md - Notes on buffered output handling
 ```
-Server      - Main server class, handles socket operations and client management
-Client      - Represents connected users with authentication state
-Channel     - Manages IRC channels with operators and modes
-Parser      - Parses and executes IRC commands
-Utils       - Utility functions for string manipulation and IRC formatting
-```
 
-### File Organization
-```
-ircserv.hpp     - Main header with includes and forward declarations
-main.cpp        - Entry point and argument parsing
-Server.hpp/.cpp - Server implementation
-Client.hpp/.cpp - Client management
-Channel.hpp/.cpp- Channel operations
-Parser.hpp/.cpp - Command parsing and execution
-Utils.hpp/.cpp  - Utility functions
-Makefile        - Build configuration
-```
+## Getting Started
 
-## 🛠️ Building and Running
+### Prerequisites
 
-### Requirements
-- C++ compiler with C++98 support
-- POSIX-compliant system (Linux/macOS)
-- Make utility
+- A compiler with C++98 support
+- `make`
+- A POSIX environment such as Linux
 
-### Compilation
+### Build
+
 ```bash
-make                # Build the server
-make clean          # Remove object files
-make fclean         # Remove all generated files
-make re             # Clean and rebuild
+make
 ```
 
-### Usage
+### Clean
+
+```bash
+make clean
+make fclean
+make re
+```
+
+### Run
+
 ```bash
 ./ircserv <port> <password>
 ```
 
-**Parameters:**
-- `port`: Port number for the server (1024-65535)
-- `password`: Server password for client authentication
+Example:
 
-**Example:**
 ```bash
 ./ircserv 6667 mypassword
 ```
 
-## 🧪 Testing
+The port must be between `1024` and `65535`, and the password must be non-empty, under 50 characters, and contain no whitespace.
 
-### Basic Test
+## Usage Notes
+
+- Connect with an IRC client or a raw TCP client such as `nc`
+- Send `PASS` before `NICK` and `USER`
+- Commands are expected in standard IRC uppercase form
+- The server replies with the usual IRC numeric responses for registration, names, topic, and error handling
+
+Compatible IRC clients include irssi and HexChat.
+
+Example session:
+
 ```bash
-# Connect with netcat
-echo -e "PASS mypassword\rNICK testuser\rUSER testuser 0 * :Test User\r" | nc localhost 6667
+nc localhost 6667
+PASS mypassword
+NICK alice
+USER alice 0 * :Alice
+JOIN #general
+PRIVMSG #general :Hello
 ```
 
-### Full Feature Test
-```bash
-# Test script provided
-chmod +x test_comprehensive.sh
-./test_comprehensive.sh
-```
+## Core Functional Coverage
 
-### IRC Client Testing
-The server is compatible with standard IRC clients like:
-- HexChat
-- IRCCloud
-- WeeChat
-- irssi
+- `PASS` for server authentication
+- `NICK` for nickname registration and changes
+- `USER` for username and real name registration
+- `JOIN` and `PART` for channel membership
+- `PRIVMSG` for private and channel messages
+- `KICK` for removing users from channels
+- `INVITE` for invite-only workflows
+- `TOPIC` for viewing and updating channel topics
+- `MODE` for channel mode management
+- `QUIT` for disconnecting cleanly
+- `WHO` and `WHOIS` for user lookup support
 
-## 📚 Educational Aspects
+## Feature Breakdown
 
-### C++ Concepts Demonstrated
-- **Object-Oriented Programming**: Classes, encapsulation, inheritance
-- **Memory Management**: RAII, proper cleanup in destructors
-- **STL Containers**: `std::vector`, `std::map`, `std::string`
-- **Exception Safety**: Resource management and error handling
-- **Static Members**: Class-level data and functions
+### Channel management
 
-### Networking Concepts
-- **Socket Programming**: TCP server sockets, client connections
-- **Non-blocking I/O**: `fcntl()` with `O_NONBLOCK`
-- **I/O Multiplexing**: `poll()` for handling multiple clients
-- **Network Byte Order**: `htons()`, `ntohs()` for portability
+- Tracks users and operators per channel
+- Supports invite-only channels
+- Supports topic-restricted channels
+- Supports channel keys
+- Supports user limits
 
-### System Programming
-- **Signal Handling**: Graceful shutdown with SIGINT
-- **Process Management**: Proper resource cleanup
-- **Error Handling**: Comprehensive error checking with `errno`
+### Connection handling
 
-## 🔧 Implementation Details
+- Accepts multiple simultaneous clients
+- Makes sockets non-blocking
+- Ignores `SIGPIPE`
+- Shuts down cleanly on `SIGINT`
 
-### Socket Management
-```cpp
-// Non-blocking socket setup
-int flags = fcntl(socket_fd, F_GETFL, 0);
-fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK);
+### Output handling
 
-// Reuse address option
-int opt = 1;
-setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-```
+- Buffers data when `send()` cannot write everything at once
+- Flushes pending data when the socket becomes writable
+- Preserves message ordering for partial sends
 
-### Poll Loop
-```cpp
-// Main event loop with poll()
-std::vector<pollfd> pollFds;
-// ... setup pollFds ...
-int result = poll(&pollFds[0], pollFds.size(), 1000);
-```
+### Validation
 
-### Command Parsing
-```cpp
-// IRC message format: [:prefix] COMMAND [params] [:trailing]
-IRCCommand parseCommand(const std::string& message);
-```
+- Validates port and password at startup
+- Validates nicknames before registration
+- Returns IRC-style errors for missing parameters, duplicate nicknames, and invalid targets
 
-### Memory Safety
-- RAII principles for resource management
-- Proper cleanup in destructors
-- No memory leaks or dangling pointers
+## Additional Notes
 
-## 🐛 Debugging
-
-### Common Issues
-1. **Port already in use**: Choose a different port or wait for timeout
-2. **Permission denied**: Use ports > 1024 for non-root users
-3. **Connection refused**: Check firewall settings
-
-### Debug Mode
-Uncomment debug lines in `Server.cpp` for verbose output:
-```cpp
-std::cout << "Processing command: '" << command << "'" << std::endl;
-```
-
-## 📖 IRC Protocol Reference
-
-This implementation follows RFC 1459 (Internet Relay Chat Protocol) with focus on:
-- Message format and parsing
-- Numeric reply codes
-- Channel naming conventions
-- User mode handling
-
-### Numeric Replies
-- 001-004: Welcome messages
-- 324: Channel mode is
-- 332: Topic reply
-- 353-366: Names reply
-- 401-482: Error codes
-
-## 🎯 42 School Requirements Compliance
-
-- ✅ C++98 standard compliance
-- ✅ Non-blocking I/O with `poll()`
-- ✅ Multiple client handling
-- ✅ IRC command implementation
-- ✅ Channel operations
-- ✅ Error handling
-- ✅ Memory management
-- ✅ No forbidden functions used
-
-## 🤝 Contributing
-
-This is an educational project for 42 school. The code includes extensive comments explaining C++ concepts, networking principles, and IRC protocol details for learning purposes.
-
-## 📝 License
-
-This project is created for educational purposes as part of the 42 school curriculum.
-
----
-
-**Author**: Created for 42 school ft_irc project  
-**Date**: June 2025  
-**Standard**: C++98  
-**Protocol**: IRC (RFC 1459)
+- This repository does not include bundled automated test scripts
+- The implementation is intended for the 42 IRC project and follows the expected C++98 constraints
+- Further details about buffering and protocol behavior are documented in the supplementary markdown files
